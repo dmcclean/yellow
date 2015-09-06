@@ -11,6 +11,7 @@ import System.RaspberryPi.GPIO
 import Control.Concurrent
 import Data.Bits
 import Data.Word (Word8)
+import Data.Int (Int64)
 
 main = withGPIO . withI2C $ g
 
@@ -35,7 +36,6 @@ g = do
       P.putStrLn "Initializing pressure sensor."
       Just sens <- initializePressureSensor pressureSensor
       P.putStrLn . show $ sens
-      setTailPower False
       showPres sens
 
 h = do
@@ -55,12 +55,12 @@ showPres sens = do
 
 data PressureSensor = PressureSensor {
                         address :: Address,
-                        pressureSensitivity :: Int,
-                        pressureOffset :: Int,
-                        tempCoPressureSensitivity :: Int,
-                        tempCoPressureOffset :: Int,
-                        refTemperature :: Int,
-                        tempCoTemperature :: Int
+                        pressureSensitivity :: Int64,
+                        pressureOffset :: Int64,
+                        tempCoPressureSensitivity :: Int64,
+                        tempCoPressureOffset :: Int64,
+                        refTemperature :: Int64,
+                        tempCoTemperature :: Int64
                       }
   deriving (Show)
 
@@ -81,10 +81,10 @@ readPressureAndTemperature s = do
                                  let adr = address s
                                  commandD1Conversion adr
                                  threadDelay 10000 -- 10 ms delay
-                                 rawPres <- readPressureSensorADC adr
+                                 rawPres <- fmap fromIntegral $ readPressureSensorADC adr
                                  commandD2Conversion adr
                                  threadDelay 10000 -- 10 ms delay
-                                 rawTemp <- readPressureSensorADC adr
+                                 rawTemp <- fmap fromIntegral $ readPressureSensorADC adr
                                  let dt = rawTemp P.- (refTemperature s `shift` 8)
                                  let temp = 2000 P.+ (dt P.* tempCoTemperature s) `shiftR` 23
                                  let off = ((pressureOffset s) `shift` 16) P.+ ((tempCoPressureOffset s P.* dt) `shiftR` 7)
@@ -94,7 +94,7 @@ readPressureAndTemperature s = do
                                  let pmbar = fromIntegral p P.* 0.1 :: Double
                                  return (pmbar *~ milli bar, tempC *~ degreeCelsius)
 
-readProm :: Address -> Word8 -> IO Int
+readProm :: Address -> Word8 -> IO Int64
 readProm adr reg = do
                      writeI2C adr (B.pack [reg])
                      res <- readI2C adr 2
