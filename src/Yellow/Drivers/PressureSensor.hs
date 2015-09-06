@@ -7,7 +7,13 @@ module Yellow.Drivers.PressureSensor
 where
 
 import qualified Prelude as P
+import Data.ByteString as B
+import Data.Bits
+import Data.Word (Word8)
+import Data.Int (Int64)
 import System.RaspberryPi.GPIO
+import Control.Concurrent
+import Control.Monad.Except
 import Numeric.Units.Dimensional.DK.Prelude
 import Numeric.Units.Dimensional.DK.NonSI
 

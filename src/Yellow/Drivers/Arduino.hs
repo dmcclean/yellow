@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 module Yellow.Drivers.Arduino
 (
   sendCommand,
@@ -5,10 +7,12 @@ module Yellow.Drivers.Arduino
 )
 where
 
+import Prelude as P
 import Data.ByteString as B
 import System.RaspberryPi.GPIO
 import Data.Bits
 import Data.Word (Word8)
+import Control.Concurrent
 import Control.Monad.Except
 
 sendCommand :: Address -> ByteString -> I2C ()

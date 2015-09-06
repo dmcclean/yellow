@@ -18,6 +18,7 @@ cabal-version:       >=1.10
 executable yellow
   main-is:             Main.hs
   other-modules:       Yellow.Drivers.Arduino,
+                       Yellow.Drivers.PressureSensor,
                        Yellow.Drivers.Tail
   -- other-extensions:    
   build-depends:       base >=4.7,
