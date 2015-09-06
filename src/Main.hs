@@ -68,12 +68,12 @@ showPres sens = do
 
 readTemperature :: I2C (ThermodynamicTemperature Double)
 readTemperature = do
-                    bytes <- performRead 0x0a 0x86 4
+                    bytes <- performRead 0x0a 0x86 3
                     return $ parseTemperature bytes
 
 readDepth :: I2C (Length Double)
 readDepth = do
-              bytes <- performRead 0x0a 0x85 4
+              bytes <- performRead 0x0a 0x85 3
               return $ parseDepth bytes
 
 parseSignedInt24 :: ByteString -> Int
