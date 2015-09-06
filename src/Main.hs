@@ -38,6 +38,7 @@ g = do
       P.putStrLn "Initializing pressure sensor."
       Right sens <- runExceptT $ initializePressureSensor pressureSensor
       P.putStrLn . show $ sens
+      runExceptT $ setGpsPower True
       runExceptT $ showPres sens
       runExceptT $ writeMotorSpeed 0
       jog 0 1
