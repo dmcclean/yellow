@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NegativeLiterals #-}
 
 module Main
 where
@@ -11,7 +12,7 @@ import System.RaspberryPi.GPIO
 import Control.Concurrent
 import Data.Bits
 import Data.Word (Word8)
-import Data.Int (Int64)
+import Data.Int (Int8, Int64)
 
 main = withGPIO . withI2C $ g
 
@@ -37,6 +38,7 @@ g = do
       Just sens <- initializePressureSensor pressureSensor
       P.putStrLn . show $ sens
       showPres sens
+      jog 0 1
 
 h = do
       P.putStrLn "Activate tail?"
@@ -47,11 +49,19 @@ h = do
       setTailPower False
       h
 
+jog :: Int8 -> Int8 -> IO ()
+jog 127    1    = jog 126 (-1)
+jog (-128) (-1) = jog (-127) 1
+jog pos inc = do
+                P.putStr "Jogging to position "
+                P.putStrLn . show $ pos
+                writeServoPositions (pos, 0, 0)
+                threadDelay 10000 -- 10 ms
+                jog (pos P.+ inc) inc
+
 showPres sens = do
                   pt <- readPressureAndTemperature sens
                   P.putStrLn . show $ pt
-                  threadDelay 1000000
-                  showPres sens
 
 data PressureSensor = PressureSensor {
                         address :: Address,
@@ -63,6 +73,27 @@ data PressureSensor = PressureSensor {
                         tempCoTemperature :: Int64
                       }
   deriving (Show)
+
+writeServoPositions :: (Int8, Int8, Int8) -> IO ()
+writeServoPositions (dorsal, port, starboard) = do
+                                                  let msg = addCrc . B.pack $ [0x42, fromIntegral dorsal, fromIntegral port, fromIntegral starboard]
+                                                  writeI2C tailController msg
+
+writeMotorSpeed :: Int8 -> IO ()
+writeMotorSpeed speed = do
+                          let msg = addCrc . B.pack $ [0x41, fromIntegral speed]
+                          writeI2C tailController msg
+
+activateDropWeight :: IO ()
+activateDropWeight = do
+                       let msg = addCrc . B.pack $ [0x63, 0xa5]
+                       writeI2C tailController msg
+
+setGpsPower :: Bool -> IO ()
+setGpsPower on = do
+                   let val = if on then 0x01 else 0x00
+                   let msg = addCrc . B.pack $ [0x81, val]
+                   writeI2C tailController msg
 
 initializePressureSensor :: Address -> IO (Maybe PressureSensor)
 initializePressureSensor adr = do

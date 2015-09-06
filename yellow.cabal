@@ -22,7 +22,8 @@ executable yellow
   build-depends:       base >=4.7,
                        HPi,
                        bytestring,
-                       dimensional-dk
+                       dimensional-dk,
+                       transformers >= 0.4
   -- extra-libraries:     bcm2835
   -- extra-lib-dirs:      /home/pi/bcm2835-1.45/src
   hs-source-dirs:      src
