@@ -23,7 +23,8 @@ executable yellow
                        HPi,
                        bytestring,
                        dimensional-dk,
-                       transformers >= 0.4
+                       transformers >= 0.4,
+                       mtl >= 2.2
   -- extra-libraries:     bcm2835
   -- extra-lib-dirs:      /home/pi/bcm2835-1.45/src
   hs-source-dirs:      src

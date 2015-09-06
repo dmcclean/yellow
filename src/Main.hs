@@ -13,6 +13,7 @@ import Control.Concurrent
 import Data.Bits
 import Data.Word (Word8)
 import Data.Int (Int8, Int64)
+import Control.Monad.Except
 
 main = withGPIO . withI2C $ g
 
@@ -31,23 +32,16 @@ pressureSensor = 0x77
 imu :: Address
 imu = 0x28
 
+g :: IO ()
 g = do
-      setTailPower True
+      runExceptT $ setTailPower True
       threadDelay 100000
       P.putStrLn "Initializing pressure sensor."
-      Just sens <- initializePressureSensor pressureSensor
+      Right sens <- runExceptT $ initializePressureSensor pressureSensor
       P.putStrLn . show $ sens
-      showPres sens
+      runExceptT $ showPres sens
+      runExceptT $ writeMotorSpeed 0
       jog 0 1
-
-h = do
-      P.putStrLn "Activate tail?"
-      P.getLine
-      setTailPower True
-      P.putStrLn "Deactivate tail?"
-      P.getLine
-      setTailPower False
-      h
 
 jog :: Int8 -> Int8 -> IO ()
 jog 127    1    = jog 126 (-1)
@@ -55,13 +49,14 @@ jog (-128) (-1) = jog (-127) 1
 jog pos inc = do
                 P.putStr "Jogging to position "
                 P.putStrLn . show $ pos
-                writeServoPositions (pos, 0, 0)
+                runExceptT $ writeServoPositions (pos, pos, pos)
                 threadDelay 10000 -- 10 ms
                 jog (pos P.+ inc) inc
 
+showPres :: PressureSensor -> I2C ()
 showPres sens = do
                   pt <- readPressureAndTemperature sens
-                  P.putStrLn . show $ pt
+                  lift $ P.putStrLn . show $ pt
 
 data PressureSensor = PressureSensor {
                         address :: Address,
@@ -74,47 +69,47 @@ data PressureSensor = PressureSensor {
                       }
   deriving (Show)
 
-writeServoPositions :: (Int8, Int8, Int8) -> IO ()
+writeServoPositions :: (Int8, Int8, Int8) -> I2C ()
 writeServoPositions (dorsal, port, starboard) = do
                                                   let msg = addCrc . B.pack $ [0x42, fromIntegral dorsal, fromIntegral port, fromIntegral starboard]
-                                                  writeI2C tailController msg
+                                                  writeI2CE tailController msg
 
-writeMotorSpeed :: Int8 -> IO ()
+writeMotorSpeed :: Int8 -> I2C ()
 writeMotorSpeed speed = do
                           let msg = addCrc . B.pack $ [0x41, fromIntegral speed]
-                          writeI2C tailController msg
+                          writeI2CE tailController msg
 
-activateDropWeight :: IO ()
+activateDropWeight :: I2C ()
 activateDropWeight = do
                        let msg = addCrc . B.pack $ [0x63, 0xa5]
-                       writeI2C tailController msg
+                       writeI2CE tailController msg
 
-setGpsPower :: Bool -> IO ()
+setGpsPower :: Bool -> I2C ()
 setGpsPower on = do
                    let val = if on then 0x01 else 0x00
                    let msg = addCrc . B.pack $ [0x81, val]
-                   writeI2C tailController msg
+                   writeI2CE tailController msg
 
-initializePressureSensor :: Address -> IO (Maybe PressureSensor)
+initializePressureSensor :: Address -> I2C PressureSensor
 initializePressureSensor adr = do
                                  resetPressureSensor adr
-                                 threadDelay 10000 -- 10 ms
+                                 lift $ threadDelay 10000 -- 10 ms
                                  c1 <- readProm adr 0xa2
                                  c2 <- readProm adr 0xa4
                                  c3 <- readProm adr 0xa6
                                  c4 <- readProm adr 0xa8
                                  c5 <- readProm adr 0xaa
                                  c6 <- readProm adr 0xac
-                                 return . Just $ PressureSensor adr c1 c2 c3 c4 c5 c6
+                                 return $ PressureSensor adr c1 c2 c3 c4 c5 c6
 
-readPressureAndTemperature :: PressureSensor -> IO (Pressure Double, ThermodynamicTemperature Double)
+readPressureAndTemperature :: PressureSensor -> I2C (Pressure Double, ThermodynamicTemperature Double)
 readPressureAndTemperature s = do
                                  let adr = address s
                                  commandD1Conversion adr
-                                 threadDelay 10000 -- 10 ms delay
+                                 lift $ threadDelay 10000 -- 10 ms delay
                                  rawPres <- fmap fromIntegral $ readPressureSensorADC adr
                                  commandD2Conversion adr
-                                 threadDelay 10000 -- 10 ms delay
+                                 lift $ threadDelay 10000 -- 10 ms delay
                                  rawTemp <- fmap fromIntegral $ readPressureSensorADC adr
                                  let dt = rawTemp P.- (refTemperature s `shift` 8)
                                  let temp = 2000 P.+ (dt P.* tempCoTemperature s) `shiftR` 23
@@ -125,38 +120,31 @@ readPressureAndTemperature s = do
                                  let pmbar = fromIntegral p P.* 0.1 :: Double
                                  return (pmbar *~ milli bar, tempC *~ degreeCelsius)
 
-readProm :: Address -> Word8 -> IO Int64
+readProm :: Address -> Word8 -> I2C Int64
 readProm adr reg = do
-                     writeI2C adr (B.pack [reg])
-                     res <- readI2C adr 2
-                     P.putStrLn . show . B.unpack $ res
+                     writeI2CE adr (B.pack [reg])
+                     res <- readI2CE adr 2
+                     lift $ P.putStrLn . show . B.unpack $ res
                      let [h, l] = fmap fromIntegral $ B.unpack res
                      return $ (h `shift` 8) .|. l
 
-commandD1Conversion :: Address -> IO (Maybe ())
-commandD1Conversion adr = do
-                            writeI2C adr (B.pack [0x44]) -- OSR 1024
-                            return $ Just ()
+commandD1Conversion :: Address -> I2C ()
+commandD1Conversion adr = writeI2CE adr (B.pack [0x44]) -- OSR 1024
 
-commandD2Conversion :: Address -> IO (Maybe ())
-commandD2Conversion adr = do
-                            writeI2C adr (B.pack [0x54]) -- OSR 1024
-                            return $ Just ()
+commandD2Conversion :: Address -> I2C ()
+commandD2Conversion adr = writeI2CE adr (B.pack [0x54]) -- OSR 1024
 
-
-readPressureSensorADC :: Address -> IO Int
+readPressureSensorADC :: Address -> I2C Int
 readPressureSensorADC adr = do
-                              writeI2C adr (B.pack [0x00])
-                              res <- readI2C adr 3
+                              writeI2CE adr (B.pack [0x00])
+                              res <- readI2CE adr 3
                               let [h, m, l] = fmap fromIntegral $ B.unpack res
                               return $ (h `shift` 16) .|. (m `shift` 8) .|. l
 
-resetPressureSensor :: Address -> IO (Maybe ())
-resetPressureSensor adr = do
-                            writeI2C adr (B.pack [0x1e])
-                            return $ Just ()
+resetPressureSensor :: Address -> I2C ()
+resetPressureSensor adr = writeI2CE adr (B.pack [0x1e])
 
-setTailPower :: Bool -> IO (Maybe ())
+setTailPower :: Bool -> I2C ()
 setTailPower True = sendCommand powerController  (B.pack [0x21, 0x01 .|. 0x02 .|. 0x04])
 setTailPower False = sendCommand powerController (B.pack [0x21, 0x01 .|. 0x02])
 
@@ -185,11 +173,10 @@ parseTemperature = (*~ degreeCelsius) . (P.+ 273.15) . fromIntegral . parseSigne
 parseDepth :: ByteString -> Length Double
 parseDepth = (*~ meter) . fromIntegral . parseSignedInt24
 
-sendCommand :: Address -> ByteString -> IO (Maybe ())
+sendCommand :: Address -> ByteString -> I2C ()
 sendCommand adr msg = do
                         let msg' = addCrc msg
-                        writeI2C adr msg'
-                        return $ Just ()
+                        writeI2CE adr msg'
 
 performRead :: Address -> Word8 -> Int -> IO (Maybe ByteString)
 performRead adr hdr n = do
