@@ -26,7 +26,7 @@ performRead adr hdr n = do
                           writeI2CE adr msg
                           lift $ P.putStrLn . show . unpack $ msg
                           lift $ threadDelay 100000
-                          res <- readI2CE adr n
+                          res <- readI2CE adr (n + 1)
                           lift $ P.putStrLn . show . unpack $ res
                           if validateCrc res
                             then return $ (B.take (B.length res - 1) res)

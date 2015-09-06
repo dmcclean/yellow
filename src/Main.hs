@@ -33,8 +33,12 @@ imu = 0x28
 
 g :: IO ()
 g = do
+      reg <- runExceptT $ getPowerRegister
+      P.putStrLn .show $ reg
       runExceptT $ setTailPower True
-      threadDelay 100000
+      reg <- runExceptT $ getPowerRegister
+      P.putStrLn . show $ reg
+      threadDelay 10000000
       P.putStrLn "Initializing pressure sensor."
       Right sens <- runExceptT $ initializePressureSensor pressureSensor
       P.putStrLn . show $ sens
