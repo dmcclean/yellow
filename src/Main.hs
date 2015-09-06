@@ -15,6 +15,8 @@ import Data.Word (Word8)
 import Data.Int (Int8, Int64)
 import Control.Monad.Except
 
+import Yellow.Drivers.Tail
+
 main = withGPIO . withI2C $ g
 
 noseController :: Address
@@ -22,9 +24,6 @@ noseController = 0x0a
 
 powerController :: Address
 powerController = 0x0b
-
-tailController :: Address
-tailController = 0x0c
 
 pressureSensor :: Address
 pressureSensor = 0x77
@@ -72,30 +71,6 @@ data PressureSensor = PressureSensor {
                         tempCoTemperature :: Int64
                       }
   deriving (Show)
-
-writeServoPositions :: (Int8, Int8, Int8) -> I2C ()
-writeServoPositions (dorsal, port, starboard) = sendCommand tailController $ B.pack [0x42, fromIntegral dorsal, fromIntegral port, fromIntegral starboard]
-
-writeMotorSpeed :: Int8 -> I2C ()
-writeMotorSpeed speed = sendCommand tailController $ B.pack [0x41, fromIntegral speed]
-
-activateDropWeight :: I2C ()
-activateDropWeight = sendCommand tailController $ B.pack [0x63, 0xa5]
-
-setGpsPower :: Bool -> I2C ()
-setGpsPower on = do
-                   let val = if on then 0x01 else 0x00
-                   sendCommand tailController $ B.pack [0x81, val]
-
-setWhiteLedPower :: Bool -> I2C ()
-setWhiteLedPower on = do
-                        let val = if on then 0x01 else 0x00
-                        sendCommand tailController $ B.pack [0x61, val, 0x00]
-
-setIrLedPower :: Bool -> I2C ()
-setIrLedPower on = do
-                     let val = if on then 0x01 else 0x00
-                     sendCommand tailController $ B.pack [0x62, val, 0x00]
 
 initializePressureSensor :: Address -> I2C PressureSensor
 initializePressureSensor adr = do
@@ -179,41 +154,3 @@ parseTemperature = (*~ degreeCelsius) . (P.+ 273.15) . fromIntegral . parseSigne
 
 parseDepth :: ByteString -> Length Double
 parseDepth = (*~ meter) . fromIntegral . parseSignedInt24
-
-sendCommand :: Address -> ByteString -> I2C ()
-sendCommand adr msg = do
-                        let msg' = addCrc msg
-                        writeI2CE adr msg'
-
-performRead :: Address -> Word8 -> Int -> I2C ByteString
-performRead adr hdr n = do
-                          let msg = addCrc . B.pack $ [hdr]
-                          writeI2CE adr msg
-                          lift $ P.putStrLn . show . unpack $ msg
-                          lift $ threadDelay 100000
-                          res <- readI2CE adr n
-                          lift $ P.putStrLn . show . unpack $ res
-                          if validateCrc res
-                            then return $ (B.take (B.length res P.- 1) res)
-                            else throwError ChecksumInvalid
-
-validateCrc :: ByteString -> Bool
-validateCrc bs | B.length bs < 2 = False
-               | otherwise = B.last bs == crc8 (B.take (B.length bs P.- 1) bs)
-
-addCrc :: ByteString -> ByteString
-addCrc bs = snoc bs (crc8 bs)
-
-crc8 :: ByteString -> Word8
-crc8 = B.foldl crc8Byte 0
-
-crc8Byte :: Word8 -> Word8 -> Word8
-crc8Byte a b = go a b 8
-  where
-    go :: Word8 -> Word8 -> Int -> Word8
-    go !x _ 0 = x
-    go !x !y !bit = go x' y' (bit P.- 1)
-      where
-        x' | testBit (x `xor` y) 7 = (x `unsafeShiftL` 1) `xor` 0x07
-           | otherwise             = x `unsafeShiftL` 1
-        y' = y `unsafeShiftL` 1
