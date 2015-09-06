@@ -1,7 +1,9 @@
 module Yellow.Drivers.Power
 (
+  turnSystemOff,
+  setNosePower,
   setTailPower,
-  getPowerRegister
+  setPayloadPower
 )
 where
 
@@ -15,10 +17,27 @@ import Yellow.Drivers.Arduino
 powerController :: Address
 powerController = 0x0b
 
--- should read current register and then do the modification
+turnSystemOff :: I2C ()
+turnSystemOff = setPower 0 False
+
+setNosePower :: Bool -> I2C ()
+setNosePower = setPower 1
+
 setTailPower :: Bool -> I2C ()
-setTailPower True = sendCommand powerController  (B.pack [0x21, 0x01 .|. 0x02 .|. 0x04])
-setTailPower False = sendCommand powerController (B.pack [0x21, 0x01 .|. 0x02])
+setTailPower = setPower 2
+
+setPayloadPower :: Bool -> I2C ()
+setPayloadPower = setPower 3
+
+setPower :: Int -> Bool -> I2C ()
+setPower b on = do
+                  reg <- getPowerRegister
+                  let new = setOrClearBit on reg b
+                  sendCommand powerController $ B.pack [0x21, new]
+
+setOrClearBit :: (Bits a) => Bool -> a -> Int -> a
+setOrClearBit True = setBit
+setOrClearBit False = clearBit
 
 getPowerRegister :: I2C Word8
 getPowerRegister = do
