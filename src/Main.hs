@@ -5,6 +5,7 @@ where
 
 import qualified Prelude as P
 import Numeric.Units.Dimensional.DK.Prelude
+import Numeric.Units.Dimensional.DK.NonSI
 import Data.ByteString as B
 import System.RaspberryPi.GPIO
 import Control.Concurrent
@@ -32,8 +33,10 @@ g = do
       setTailPower True
       threadDelay 100000
       P.putStrLn "Initializing pressure sensor."
-      sens <- initializePressureSensor pressureSensor
+      Just sens <- initializePressureSensor pressureSensor
       P.putStrLn . show $ sens
+      setTailPower False
+      showPres sens
 
 h = do
       P.putStrLn "Activate tail?"
@@ -43,6 +46,12 @@ h = do
       P.getLine
       setTailPower False
       h
+
+showPres sens = do
+                  pt <- readPressureAndTemperature sens
+                  P.putStrLn . show $ pt
+                  threadDelay 1000000
+                  showPres sens
 
 data PressureSensor = PressureSensor {
                         address :: Address,
@@ -59,13 +68,31 @@ initializePressureSensor :: Address -> IO (Maybe PressureSensor)
 initializePressureSensor adr = do
                                  resetPressureSensor adr
                                  threadDelay 10000 -- 10 ms
-                                 c1 <- readProm adr 0xa0
-                                 c2 <- readProm adr 0xa2
-                                 c3 <- readProm adr 0xa4
-                                 c4 <- readProm adr 0xa6
-                                 c5 <- readProm adr 0xa8
-                                 c6 <- readProm adr 0xaa
+                                 c1 <- readProm adr 0xa2
+                                 c2 <- readProm adr 0xa4
+                                 c3 <- readProm adr 0xa6
+                                 c4 <- readProm adr 0xa8
+                                 c5 <- readProm adr 0xaa
+                                 c6 <- readProm adr 0xac
                                  return . Just $ PressureSensor adr c1 c2 c3 c4 c5 c6
+
+readPressureAndTemperature :: PressureSensor -> IO (Pressure Double, ThermodynamicTemperature Double)
+readPressureAndTemperature s = do
+                                 let adr = address s
+                                 commandD1Conversion adr
+                                 threadDelay 10000 -- 10 ms delay
+                                 rawPres <- readPressureSensorADC adr
+                                 commandD2Conversion adr
+                                 threadDelay 10000 -- 10 ms delay
+                                 rawTemp <- readPressureSensorADC adr
+                                 let dt = rawTemp P.- (refTemperature s `shift` 8)
+                                 let temp = 2000 P.+ (dt P.* tempCoTemperature s) `shiftR` 23
+                                 let off = ((pressureOffset s) `shift` 16) P.+ ((tempCoPressureOffset s P.* dt) `shiftR` 7)
+                                 let sens = ((pressureSensitivity s) `shift` 15) P.+ ((tempCoPressureSensitivity s P.* dt) `shiftR` 8)
+                                 let p = (((rawPres P.* sens) `shiftR` 21) P.- off) `shiftR` 13
+                                 let tempC = fromIntegral temp P.* 0.01 :: Double
+                                 let pmbar = fromIntegral p P.* 0.1 :: Double
+                                 return (pmbar *~ milli bar, tempC *~ degreeCelsius)
 
 readProm :: Address -> Word8 -> IO Int
 readProm adr reg = do
@@ -86,11 +113,12 @@ commandD2Conversion adr = do
                             return $ Just ()
 
 
-readPressureSensorADC :: Address -> IO (Maybe Int)
+readPressureSensorADC :: Address -> IO Int
 readPressureSensorADC adr = do
-                             res <- writeReadI2C adr (B.pack [0x00]) 3
-                             let [h, m, l] = fmap fromIntegral $ B.unpack res
-                             return . Just $ (h `shift` 16) .|. (m `shift` 8) .|. l
+                              writeI2C adr (B.pack [0x00])
+                              res <- readI2C adr 3
+                              let [h, m, l] = fmap fromIntegral $ B.unpack res
+                              return $ (h `shift` 16) .|. (m `shift` 8) .|. l
 
 resetPressureSensor :: Address -> IO (Maybe ())
 resetPressureSensor adr = do
