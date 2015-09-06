@@ -34,7 +34,6 @@ g = do
       P.putStrLn "Initializing pressure sensor."
       sens <- initializePressureSensor pressureSensor
       P.putStrLn . show $ sens
-      h
 
 h = do
       P.putStrLn "Activate tail?"
