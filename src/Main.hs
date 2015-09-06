@@ -44,8 +44,12 @@ g = do
       jog 0 1
 
 jog :: Int8 -> Int8 -> IO ()
-jog 127    1    = jog 126 (-1)
-jog (-128) (-1) = jog (-127) 1
+jog 127    1    = do
+                    runExceptT $ setWhiteLedPower True
+                    jog 126 (-1)
+jog (-128) (-1) = do
+                    -- runExceptT $ setWhiteLedPower False
+                    jog (-127) 1
 jog pos inc = do
                 P.putStr "Jogging to position "
                 P.putStrLn . show $ pos
@@ -70,25 +74,28 @@ data PressureSensor = PressureSensor {
   deriving (Show)
 
 writeServoPositions :: (Int8, Int8, Int8) -> I2C ()
-writeServoPositions (dorsal, port, starboard) = do
-                                                  let msg = addCrc . B.pack $ [0x42, fromIntegral dorsal, fromIntegral port, fromIntegral starboard]
-                                                  writeI2CE tailController msg
+writeServoPositions (dorsal, port, starboard) = sendCommand tailController $ B.pack [0x42, fromIntegral dorsal, fromIntegral port, fromIntegral starboard]
 
 writeMotorSpeed :: Int8 -> I2C ()
-writeMotorSpeed speed = do
-                          let msg = addCrc . B.pack $ [0x41, fromIntegral speed]
-                          writeI2CE tailController msg
+writeMotorSpeed speed = sendCommand tailController $ B.pack [0x41, fromIntegral speed]
 
 activateDropWeight :: I2C ()
-activateDropWeight = do
-                       let msg = addCrc . B.pack $ [0x63, 0xa5]
-                       writeI2CE tailController msg
+activateDropWeight = sendCommand tailController $ B.pack [0x63, 0xa5]
 
 setGpsPower :: Bool -> I2C ()
 setGpsPower on = do
                    let val = if on then 0x01 else 0x00
-                   let msg = addCrc . B.pack $ [0x81, val]
-                   writeI2CE tailController msg
+                   sendCommand tailController $ B.pack [0x81, val]
+
+setWhiteLedPower :: Bool -> I2C ()
+setWhiteLedPower on = do
+                        let val = if on then 0x01 else 0x00
+                        sendCommand tailController $ B.pack [0x61, val, 0x00]
+
+setIrLedPower :: Bool -> I2C ()
+setIrLedPower on = do
+                     let val = if on then 0x01 else 0x00
+                     sendCommand tailController $ B.pack [0x62, val, 0x00]
 
 initializePressureSensor :: Address -> I2C PressureSensor
 initializePressureSensor adr = do
@@ -148,15 +155,15 @@ setTailPower :: Bool -> I2C ()
 setTailPower True = sendCommand powerController  (B.pack [0x21, 0x01 .|. 0x02 .|. 0x04])
 setTailPower False = sendCommand powerController (B.pack [0x21, 0x01 .|. 0x02])
 
-readTemperature :: IO (Maybe (ThermodynamicTemperature Double))
+readTemperature :: I2C (ThermodynamicTemperature Double)
 readTemperature = do
                     bytes <- performRead 0x0a 0x86 4
-                    return $ fmap parseTemperature bytes
+                    return $ parseTemperature bytes
 
-readDepth :: IO (Maybe (Length Double))
+readDepth :: I2C (Length Double)
 readDepth = do
               bytes <- performRead 0x0a 0x85 4
-              return $ fmap parseDepth bytes
+              return $ parseDepth bytes
 
 parseSignedInt24 :: ByteString -> Int
 parseSignedInt24 bs | isNegative = (255 `shift` 24) .|. hml
@@ -178,17 +185,17 @@ sendCommand adr msg = do
                         let msg' = addCrc msg
                         writeI2CE adr msg'
 
-performRead :: Address -> Word8 -> Int -> IO (Maybe ByteString)
+performRead :: Address -> Word8 -> Int -> I2C ByteString
 performRead adr hdr n = do
                           let msg = addCrc . B.pack $ [hdr]
-                          writeI2C adr msg
-                          P.putStrLn . show . unpack $ msg
-                          threadDelay 100000
-                          res <- readI2C adr n
-                          P.putStrLn . show . unpack $ res
+                          writeI2CE adr msg
+                          lift $ P.putStrLn . show . unpack $ msg
+                          lift $ threadDelay 100000
+                          res <- readI2CE adr n
+                          lift $ P.putStrLn . show . unpack $ res
                           if validateCrc res
-                            then return . Just $ (B.take (B.length res P.- 1) res)
-                            else return Nothing
+                            then return $ (B.take (B.length res P.- 1) res)
+                            else throwError ChecksumInvalid
 
 validateCrc :: ByteString -> Bool
 validateCrc bs | B.length bs < 2 = False
