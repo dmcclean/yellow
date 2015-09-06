@@ -6,6 +6,13 @@ module Yellow.Drivers.PressureSensor
 )
 where
 
+import qualified Prelude as P
+import System.RaspberryPi.GPIO
+import Numeric.Units.Dimensional.DK.Prelude
+import Numeric.Units.Dimensional.DK.NonSI
+
+import Yellow.Drivers.Arduino
+
 data PressureSensor = PressureSensor {
                         address :: Address,
                         pressureSensitivity :: Int64,
