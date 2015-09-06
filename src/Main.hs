@@ -22,14 +22,81 @@ powerController = 0x0b
 tailController :: Address
 tailController = 0x0c
 
+pressureSensor :: Address
+pressureSensor = 0x77
+
+imu :: Address
+imu = 0x28
+
 g = do
+      setTailPower True
+      threadDelay 100000
+      P.putStrLn "Initializing pressure sensor."
+      sens <- initializePressureSensor pressureSensor
+      P.putStrLn . show $ sens
+      h
+
+h = do
       P.putStrLn "Activate tail?"
       P.getLine
       setTailPower True
       P.putStrLn "Deactivate tail?"
       P.getLine
       setTailPower False
-      g
+      h
+
+data PressureSensor = PressureSensor {
+                        address :: Address,
+                        pressureSensitivity :: Int,
+                        pressureOffset :: Int,
+                        tempCoPressureSensitivity :: Int,
+                        tempCoPressureOffset :: Int,
+                        refTemperature :: Int,
+                        tempCoTemperature :: Int
+                      }
+  deriving (Show)
+
+initializePressureSensor :: Address -> IO (Maybe PressureSensor)
+initializePressureSensor adr = do
+                                 resetPressureSensor adr
+                                 threadDelay 10000 -- 10 ms
+                                 c1 <- readProm adr 0xa0
+                                 c2 <- readProm adr 0xa2
+                                 c3 <- readProm adr 0xa4
+                                 c4 <- readProm adr 0xa6
+                                 c5 <- readProm adr 0xa8
+                                 c6 <- readProm adr 0xaa
+                                 return . Just $ PressureSensor adr c1 c2 c3 c4 c5 c6
+
+readProm :: Address -> Word8 -> IO Int
+readProm adr reg = do
+                     writeI2C adr (B.pack [reg])
+                     res <- readI2C adr 2
+                     P.putStrLn . show . B.unpack $ res
+                     let [h, l] = fmap fromIntegral $ B.unpack res
+                     return $ (h `shift` 8) .|. l
+
+commandD1Conversion :: Address -> IO (Maybe ())
+commandD1Conversion adr = do
+                            writeI2C adr (B.pack [0x44]) -- OSR 1024
+                            return $ Just ()
+
+commandD2Conversion :: Address -> IO (Maybe ())
+commandD2Conversion adr = do
+                            writeI2C adr (B.pack [0x54]) -- OSR 1024
+                            return $ Just ()
+
+
+readPressureSensorADC :: Address -> IO (Maybe Int)
+readPressureSensorADC adr = do
+                             res <- writeReadI2C adr (B.pack [0x00]) 3
+                             let [h, m, l] = fmap fromIntegral $ B.unpack res
+                             return . Just $ (h `shift` 16) .|. (m `shift` 8) .|. l
+
+resetPressureSensor :: Address -> IO (Maybe ())
+resetPressureSensor adr = do
+                            writeI2C adr (B.pack [0x1e])
+                            return $ Just ()
 
 setTailPower :: Bool -> IO (Maybe ())
 setTailPower True = sendCommand powerController  (B.pack [0x21, 0x01 .|. 0x02 .|. 0x04])
