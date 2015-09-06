@@ -15,6 +15,7 @@ import Data.Word (Word8)
 import Data.Int (Int8, Int64)
 import Control.Monad.Except
 
+import Yellow.Drivers.Power
 import Yellow.Drivers.Tail
 import Yellow.Drivers.PressureSensor
 import Yellow.Drivers.Arduino
@@ -23,9 +24,6 @@ main = withGPIO . withI2C $ g
 
 noseController :: Address
 noseController = 0x0a
-
-powerController :: Address
-powerController = 0x0b
 
 pressureSensor :: Address
 pressureSensor = 0x77
@@ -62,10 +60,6 @@ showPres :: PressureSensor -> I2C ()
 showPres sens = do
                   pt <- readPressureAndTemperature sens
                   lift $ P.putStrLn . show $ pt
-
-setTailPower :: Bool -> I2C ()
-setTailPower True = sendCommand powerController  (B.pack [0x21, 0x01 .|. 0x02 .|. 0x04])
-setTailPower False = sendCommand powerController (B.pack [0x21, 0x01 .|. 0x02])
 
 readTemperature :: I2C (ThermodynamicTemperature Double)
 readTemperature = do
