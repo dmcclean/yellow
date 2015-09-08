@@ -20,7 +20,7 @@ import Yellow.Drivers.Tail
 import Yellow.Drivers.PressureSensor
 import Yellow.Drivers.Arduino
 
-main = withGPIO . withI2C $ g
+main = withGPIO . withI2C $ f -- g
 
 noseController :: Address
 noseController = 0x0a
@@ -30,6 +30,15 @@ pressureSensor = 0x77
 
 imu :: Address
 imu = 0x28
+
+f :: IO ()
+f = do
+      d <- runExceptT $ readDepth
+      P.putStrLn . show $ d
+      t <- runExceptT $ readTemperature
+      P.putStrLn . show $ t
+      threadDelay 1000000
+      f
 
 g :: IO ()
 g = do
@@ -64,12 +73,12 @@ showPres sens = do
 
 readTemperature :: I2C (ThermodynamicTemperature Double)
 readTemperature = do
-                    bytes <- performRead 0x0a 0x86 3
+                    bytes <- performRead 0x0a 0x87 3
                     return $ parseTemperature bytes
 
 readDepth :: I2C (Length Double)
 readDepth = do
-              bytes <- performRead 0x0a 0x85 3
+              bytes <- performRead 0x0a 0x86 3
               return $ parseDepth bytes
 
 parseSignedInt24 :: ByteString -> Int
@@ -82,7 +91,7 @@ parseSignedInt24 bs | isNegative = (255 `shift` 24) .|. hml
     hml = (h' `shift` 16) .|. (m' `shift` 8) .|. l'
 
 parseTemperature :: ByteString -> ThermodynamicTemperature Double
-parseTemperature = (*~ degreeCelsius) . (P.+ 273.15) . fromIntegral . parseSignedInt24
+parseTemperature = (*~ centi degreeCelsius) . fromIntegral . parseSignedInt24
 
 parseDepth :: ByteString -> Length Double
-parseDepth = (*~ meter) . fromIntegral . parseSignedInt24
+parseDepth = (*~ milli meter) . fromIntegral . parseSignedInt24
