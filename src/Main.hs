@@ -1,5 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE NegativeLiterals #-}
+{-# LANGUAGE BangPatterns #-} {-# LANGUAGE NegativeLiterals #-}
 
 module Main
 where
@@ -37,6 +36,8 @@ f = do
       P.putStrLn . show $ d
       t <- runExceptT $ readTemperature
       P.putStrLn . show $ t
+      a <- runExceptT $ readAltimeter
+      P.putStrLn . show $ a
       threadDelay 1000000
       f
 
@@ -81,6 +82,11 @@ readDepth = do
               bytes <- performRead 0x0a 0x86 3
               return $ parseDepth bytes
 
+readAltimeter :: I2C (Length Double)
+readAltimeter = do
+                  bytes <- performRead 0x0a 0x89 2
+                  return $ parseAltimeter bytes
+
 parseSignedInt24 :: ByteString -> Int
 parseSignedInt24 bs | isNegative = (255 `shift` 24) .|. hml
                     | otherwise  = hml
@@ -89,6 +95,16 @@ parseSignedInt24 bs | isNegative = (255 `shift` 24) .|. hml
     isNegative = testBit h 7
     [l', m', h'] = fmap fromIntegral [l, m, h]
     hml = (h' `shift` 16) .|. (m' `shift` 8) .|. l'
+
+parseUnsignedInt16 :: ByteString -> Int
+parseUnsignedInt16 bs = hl
+  where
+    [l, h] = B.unpack bs
+    [l', h'] = fmap fromIntegral [l, h]
+    hl = (h' `shift` 8) .|. l'
+
+parseAltimeter :: ByteString -> Length Double
+parseAltimeter = (*~ milli meter) . fromIntegral . parseUnsignedInt16
 
 parseTemperature :: ByteString -> ThermodynamicTemperature Double
 parseTemperature = (*~ centi degreeCelsius) . fromIntegral . parseSignedInt24
